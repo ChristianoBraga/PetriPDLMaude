@@ -1,0 +1,157 @@
+mod PETRI-PDL is
+	sort Place Places BasicProg Prog Net .
+	subsort Place < Places .
+	subsort BasicProg < Prog .
+	ops epsilon a b c d e l m x y c g1 g2 s1 s2 r1 r2 p1 p2 w1 w2 : -> Place .
+	op __ : Places Places -> Places [prec 20 assoc comm id: epsilon] .
+	op _t1_ : Place Place -> BasicProg [prec 30] .
+	op __t2_ : Place Place Place -> BasicProg [prec 30] .	
+	op _t3__ : Place Place Place -> BasicProg [prec 30] .
+	op _+_ : Prog Prog -> Prog [assoc comm prec 40] .
+	op _,_ : Places Prog -> Net .
+	op getPlaces : Net -> Places .
+	
+	vars A B C : Place . var W : Places . var P : Prog . 
+
+	eq getPlaces(W, P) = W .
+
+	rl [t1] : A W , A t1 B => B W , A t1 B . 
+	rl [t2] : A B W , A B t2 C =>  C W , A B t2 C .
+	rl [t3] : A W , A t3 B C => B C W , A t3 B C .
+	
+	rl [t1] : A W , A t1 B + P => B W , A t1 B + P . 
+	rl [t2] : A B W , A B t2 C + P =>  C W , A B t2 C + P .
+	rl [t3] : A W , A t3 B C + P => B C W , A t3 B C + P .
+endm
+
+load model-checker
+
+mod PDL-MODEL-CHECKER is
+	inc PETRI-PDL .
+	inc META-LEVEL .
+	inc NAT .
+	pr SAT-SOLVER .
+	
+	sort PDLState .
+	
+	sort PlacesList .
+	subsort Places < PlacesList .
+	op mt-placeslist : -> PlacesList .
+	op _->_ : PlacesList PlacesList -> PlacesList [assoc id: mt-placeslist] .
+		
+	sort PlacesListSet .
+	subsort PlacesList < PlacesListSet .
+	op mt-placeslistset : -> PlacesListSet .
+	op _;;_ : PlacesListSet PlacesListSet -> PlacesListSet [assoc comm id: mt-placeslistset] .
+		
+	op ppdlNStepRewTrace : Net NzNat -> PlacesListSet .
+	op ppdlNStepRewTrace-aux : Prog NzNat PlacesListSet -> PlacesListSet .
+
+	op ppdlOneStepRewTraces : Net PlacesList -> PlacesListSet .	
+	op ppdlOneStepRewTraces-aux : Net Nat PlacesList PlacesListSet -> PlacesListSet .	
+
+	sort PPDLModel .
+	op ppdlModel : Bool PlacesList -> PPDLModel .
+	op not_ : PPDLModel -> PPDLModel .
+	op isTrue? : PPDLModel -> Bool .
+	op include : PlacesListSet PPDLModel -> PPDLModel .
+			
+	op modelCheck : Formula Nat PlacesListSet -> PPDLModel .
+	op holdsInTrace : Formula PlacesListSet -> PPDLModel .
+
+	sort FormulaSet . 
+	subsort Formula < FormulaSet .
+	op mt-formulaset : -> FormulaSet .
+	op __ : FormulaSet FormulaSet -> FormulaSet [assoc comm id: mt-formulaset] . 
+	op applyValuation : Formula FormulaSet -> Bool .
+	op formula-set-error : -> [FormulaSet] . 
+	
+	op ppdlSearch : Net Nat Nat -> [Places] .
+	op pdl-extension-module : -> Qid .
+	op no-solution : -> [Places] .
+	op error : -> [Net] .
+
+	sort PDLFormula .
+	subsort PDLFormula < Formula .
+	op <_,_>_ : Places Prog Formula -> PDLFormula .
+	op valuation : Places -> FormulaSet .
+
+	op holdsIn : PDLFormula Places -> Bool .
+		
+	vars BOUND SOL N : Nat . var W W1 W2 : Places . var P : Prog . var E : Net .
+	vars PDLF PDLF1 PDLF2 : PDLFormula . vars A F F1 F2 : Formula . var Q : Qid . var FS : FormulaSet .
+	var PL PL1 PL2 : PlacesList . var PLS PLS1 PLS2 : PlacesListSet . var B : Bool . var PPDLM : PPDLModel .
+
+    --- Idempotence of FormulaSet and PlacesListSet .
+	eq PL ;; PL ;; PLS = PL ;; PLS .
+	eq F F FS = F FS .
+			  		
+	--- applyValuation: returns the boolean value for a given propositional formula given a set of valuations.
+	eq applyValuation(True, FS) = true .
+	eq applyValuation(False, FS) = true .
+	eq applyValuation(A, (A FS)) = true .
+	eq applyValuation(A, ((~ A) FS)) = false .
+	eq applyValuation(~ A, (A FS)) = false .
+	eq applyValuation(~ A, ((~ A) FS)) = true .	
+	eq applyValuation(A /\ F, (A FS)) = applyValuation(F, (A FS)) .
+	eq applyValuation(A /\ F, ((~ A) FS)) = false .	
+	eq applyValuation(~ A /\ F, (A FS)) = false .
+	eq applyValuation(~ A /\ F, ((~ A) FS)) = applyValuation(F, ((~ A) FS)) .	
+	eq applyValuation(A \/ F, (A FS)) = true .
+	eq applyValuation(A \/ F, ((~ A) FS)) = applyValuation(F, ((~ A) FS)) .	
+	eq applyValuation(~ A \/ F, (A FS)) = applyValuation(F, (A FS)) .	
+	eq applyValuation(~ A \/ F, ((~ A) FS)) = true .	
+
+	--- PPDLModel operations
+	eq not ppdlModel(B, PL) = ppdlModel(not B, PL) .
+	eq isTrue?(ppdlModel(B, PL)) = B .	
+	eq include(mt-placeslistset, PPDLM) = PPDLM .
+	eq include(PLS ;; PL1, ppdlModel(B, PL2)) = ppdlModel(B, PL1 -> PL2) .
+
+	--- PPDL model checking
+	eq modelCheck(~ PDLF, N, PLS) = not modelCheck(PDLF, N, PLS) .
+	eq modelCheck(PDLF1 \/ PDLF2, N, PLS) = if isTrue?(modelCheck(PDLF1, N, PLS)) then modelCheck(PDLF1, N, PLS) else modelCheck(PDLF2, N, PLS) fi .
+	eq modelCheck(PDLF1 /\ PDLF2, N, PLS) = if isTrue?(modelCheck(PDLF1, N, PLS)) then modelCheck(PDLF2, N, PLS) else modelCheck(PDLF1, N, PLS) fi .	    
+	eq modelCheck(< W, P > F, N, PLS) = include(PLS, modelCheck(F, sd(N,1), ppdlNStepRewTrace((W,P), N))) .
+	ceq modelCheck(F, N, PLS) = holdsInTrace(F, PLS) if PLS =/= mt-placeslistset [owise] .
+
+	--- holdsIn: Checks if a given propositional formula holds in a marking.	
+   	eq holdsIn(F, W) = applyValuation(F, downTerm(getTerm(metaReduce(upModule('VALUATION, false), 'valuation[upTerm(W)])), formula-set-error)) .
+
+	--- holdsInTrace: Checks if a formula is true in the last marking of a trace.
+	eq holdsInTrace(F, (PL -> W)) =  ppdlModel(holdsIn(F, W), PL -> W) .
+	eq holdsInTrace(F, (PL -> W) ;; PLS) = if not holdsIn(F, W) then holdsInTrace(F, PLS) else ppdlModel(holdsIn(F, W), (PL -> W)) fi .
+	
+	--- ppdlNStepRewTrace: Implements R_n relation, that is, produces all the traces after n steps from a given Net.
+	eq ppdlNStepRewTrace((W,P), 0) = W .
+	eq ppdlNStepRewTrace((W,P), N) = ppdlNStepRewTrace-aux(P, N, W) . 	
+	
+	eq ppdlNStepRewTrace-aux(P, 0, PLS) = PLS .
+	eq ppdlNStepRewTrace-aux(P, N, mt-placeslistset) = mt-placeslistset .
+	ceq ppdlNStepRewTrace-aux(P, N, ((PL -> W) ;; PLS)) = 
+		ppdlNStepRewTrace-aux(P, sd(N, 1), ppdlOneStepRewTraces((W,P), PL) ;; ppdlNStepRewTrace-aux(P, 1, PLS)) if N > 0 .	   
+
+	--- ppdlNStepRewTrace: Implements R_1 relation, that is, produces all the traces after 1 step from a given Net.
+	eq ppdlOneStepRewTraces((W,P), PL) = 
+	   if ppdlOneStepRewTraces-aux((W,P), 0, PL, mt-placeslistset) == mt-placeslistset then (PL -> W) else ppdlOneStepRewTraces-aux((W,P), 0, PL, mt-placeslistset) fi .
+
+	eq ppdlOneStepRewTraces-aux((W, P), SOL, PL, PLS) = 
+	   if ppdlSearch((W, P), 1, SOL) == no-solution then PLS else ppdlOneStepRewTraces-aux((W, P), (SOL + 1), PL, (PLS ;; (PL -> W -> ppdlSearch((W, P), 1, SOL)))) fi . 
+	   
+    --- ppdlSearch: Searches for the SOLth soultion, in BOUND depth, from a given Net.
+   	eq ppdlSearch((W, P), BOUND, SOL) = 
+   	   if downTerm(getTerm(metaSearch(upModule(pdl-extension-module, false), upTerm((W, P)), 'N:Net, nil, '+ , BOUND, SOL)), error) == error 
+   	   then no-solution  
+   	   else getPlaces(downTerm(getTerm(metaSearch(upModule(pdl-extension-module, false), upTerm((W, P)), 'N:Net, nil, '+ , BOUND, SOL)), error))
+   	   fi .	    		
+endm
+
+mod PETRI-PDL-MODEL-CHECKER is
+	ex PDL-MODEL-CHECKER .
+	
+	eq pdl-extension-module = 'PETRI-PDL .
+endm
+
+mod VALUATION is inc PETRI-PDL-MODEL-CHECKER . var W : Places . ops p q : -> Formula . eq valuation(w1) = p . eq valuation(w2) = q . eq valuation(d) = ((~ p) (~ q)) . endm
+
+red modelCheck(~ (< c, c t3 g1 g2 + g1 t1 r1 + g1 t1 p1 + g1 t1 s1 + g2 t1 r2 + g2 t1 p2 + g2 t1 s2 + r1 r2 t2 d + r1 p2 t2 w2 + r1 s2 t2 w1 + p1 r2 t2 w1 + p1 p2 t2 d + p1 s2 t2 w2 + s1 r2 t2 w2 + s1 p2 t2 w1 + s1 s2 t2 d > (~ (p \/ q))), 4, mt-placeslistset) .
